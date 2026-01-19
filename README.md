@@ -248,6 +248,40 @@ nmcli device wifi connect "YOUR_WIFI_NETWORK" password "YOUR_PASSWORD"
 
 ---
 
+### Troubleshooting WiFi Connection Issues
+
+If you have a saved network that won't connect, or you get this error:
+
+```
+Error: 802-11-wireless-security.key-mgmt: property is missing.
+```
+
+This typically happens due to password/secret management issues with the saved connection profile. The solution is to delete the saved network and recreate it:
+
+#### Step 1: Delete the existing connection
+
+```bash
+nmcli connection delete "YOUR_WIFI_NETWORK"
+```
+
+#### Step 2: Find your interface name
+
+```bash
+ip link
+```
+
+Look for your wireless interface (e.g., `wlp0s16f0u2` or `wlp0s16f0u2i2`).
+
+#### Step 3: Recreate the connection
+
+```bash
+nmcli device wifi connect "YOUR_WIFI_NETWORK" password "YOUR_PASSWORD" ifname wlp0s16f0u2i2
+```
+
+> **Note:** Replace `YOUR_WIFI_NETWORK` with your actual network name (SSID), `YOUR_PASSWORD` with your WiFi password, and `wlp0s16f0u2i2` with your actual interface name from `ip link`.
+
+---
+
 ## Utilities
 
 ### Oberon-Governor
