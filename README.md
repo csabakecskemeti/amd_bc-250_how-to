@@ -146,6 +146,13 @@ nmcli device wifi connect "YOUR_WIFI_NETWORK" password "YOUR_PASSWORD" ifname wl
 
 **TP-Link 2-in-1 USB Bluetooth WiFi Adapter Archer TX10UB Nano | AX900 WiFi 6 BT 5.3**
 
+#### UPDATE 2026-02-10
+kernel 6.17+ has the drivers.
+```bash
+sudo mhwd-kernel -i linux618
+```
+-----------------------------------------
+
 | Pros | Cons |
 |------|------|
 | Faster WiFi speeds (AX900) | Requires driver installation |
