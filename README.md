@@ -399,6 +399,12 @@ Install psensor for a graphical interface to monitor temperatures.
 
 ---
 
+## Unlock all 40 CUs on Arch / Manjaro
+
+See [docs/bc250-cu-unlock-on-arch.md](docs/bc250-cu-unlock-on-arch.md) for a complete walkthrough of patching the amdgpu kernel module to unlock all 40 compute units on the BC-250. Covers building the patched module, installing it on Arch/Manjaro, initramfs handling, and reverting.
+
+---
+
 ## Useful links
 
 - https://github.com/mothenjoyer69/bc250-documentation
