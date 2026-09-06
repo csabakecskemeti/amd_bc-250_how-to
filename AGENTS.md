@@ -4,11 +4,23 @@ This file instructs AI assistants (Claude Code, etc.) on how to guide a user thr
 
 ---
 
+## Kernel version matters — some steps may become unnecessary
+
+This document describes what is needed *today* on Manjaro with kernel 6.18.x. As the Linux kernel and its drivers mature, several steps below will become unnecessary:
+
+- **WiFi adapters.** The `88x2bu` driver (RTL8852BU) is already in the mainline kernel ≥6.17. On a newer Manjaro kernel it may work *plug-and-play* — no `make`, no `dkms`, nothing. **Always check `dmesg` and `lsmod` first before falling back to a manual build.**
+- **CU unlock patch.** The patch may eventually be accepted into the mainline `amdgpu` driver, or AMD may enable all 40 CUs by default in a future BIOS update. If the `bc250_cc_write_mode` module parameter already exists without any patch, the entire compile-and-install cycle is skipped.
+- **Kernel headers packaging.** Manjaro's versioned headers (`linux618-headers`) and Arch's `linux-headers` make out-of-tree module builds straightforward today. This is unlikely to get more complex, but the exact package name changes with each kernel series (`linux612`, `linux618`, `linux619`, …).
+
+**Rule of thumb:** before instructing a manual build or driver install, the AI should tell the user to check the current kernel version first (`uname -r`) and test whether the hardware already works. Skip the step if it does.
+
+---
+
 ## Architecture: Two Machines, One Job
 
 ```
 ┌──────────────────────┐     SSH?      ┌──────────────────────┐
-│  AI WORKSTATION      │  ──────────  │  TARGET: BC-250       │
+│  REMOTE HOST         │  ──────────  │  TARGET: BC-250       │
 │  (your computer)     │               │  (the BC-250 board)  │
 │                      │  (optional)   │                      │
 │  • AI agent runs here│               │  • Manjaro Linux     │
@@ -23,7 +35,7 @@ This file instructs AI assistants (Claude Code, etc.) on how to guide a user thr
          on the BC-250, pastes output back)
 ```
 
-**Key principle:** The AI agent runs on the AI workstation and *instructs* the user. The user is the "hands" — they plug cables, type commands on the BC-250, read screens, and paste output back to the AI.
+**Key principle:** The AI agent runs on the remote host and *instructs* the user. The user is the "hands" — they plug cables, type commands on the BC-250, read screens, and paste output back to the AI.
 
 **The AI must never assume it can execute commands on the BC-250** unless explicitly told one of the operating modes below is in effect.
 
@@ -35,7 +47,7 @@ The AI agent always states which mode it's in at the start of a session.
 
 ### Mode A: Remote (default) — AI on a separate machine
 
-The AI agent runs on the AI workstation (a different machine from the BC-250). The user talks to the AI on the workstation and manually runs commands on the BC-250.
+The AI agent runs on the remote host (a different machine from the BC-250). The user talks to the AI on the workstation and manually runs commands on the BC-250.
 
 **Setup:**
 1. The BC-250 boots to an installed OS or a live USB
@@ -51,9 +63,9 @@ The AI agent runs on the AI workstation (a different machine from the BC-250). T
 
 ### Mode B: SSH — Passwordless remote execution
 
-The AI agent is still on the AI workstation, but the user has set up passwordless SSH from the workstation to the BC-250. The AI can now run commands directly on the BC-250 via SSH.
+The AI agent is still on the remote host, but the user has set up passwordless SSH from the workstation to the BC-250. The AI can now run commands directly on the BC-250 via SSH.
 
-**Setup (one-time, on the AI workstation):**
+**Setup (one-time, on the remote host):**
 ```bash
 # Generate a dedicated key
 ssh-keygen -t ed25519 -f ~/.ssh/bc250_id -C "bc250-ai-agent"
@@ -99,7 +111,7 @@ When instructing the user, prefix each command block with its target so there's 
 | Label | Meaning |
 |---|---|
 | `[BC-250]` | User must type this on the BC-250 |
-| `[AI WORKSTATION]` | AI (or user) runs this on the workstation |
+| `[REMOTE HOST]` | AI (or user) runs this on the remote host |
 | `[SSH]` | AI is running this on the BC-250 via passwordless SSH |
 | `[EFI SHELL]` | Type this in the BC-250's EFI shell (no OS yet) |
 | `[BIOS SETUP]` | Do this in the UEFI BIOS menu (F2 / Del at boot) |
@@ -137,7 +149,7 @@ The AI should **not proceed** until the user says yes.
 
 ## Operation Phases
 
-### Phase 0 — Preparation (AI WORKSTATION)
+### Phase 0 — Preparation (Remote Host)
 
 The AI prepares everything before touching the BC-250.
 
@@ -145,6 +157,7 @@ The AI prepares everything before touching the BC-250.
 - Download BIOS files, OS ISOs, driver sources
 - Read and internalise the docs in this repo
 - Prepare USB drive instructions for the user
+- **Check kernel version.** Before fetching kernel source for the CU unlock, note the version. If the kernel is ≥6.17 the WiFi driver may already be built in, saving a manual step later.
 
 **AI tells the user:** "Download this Manjaro ISO to a USB drive." / "Put these BIOS files on a FAT32 USB drive."
 
@@ -233,18 +246,40 @@ lspci -nn | grep -i 13fe
 
 **Where:** The BC-250.
 
-**What the user does:**
+> **Kernel version check.** Before falling back to a manual driver build, check whether the adapter works out of the box:
+>
+> ```bash
+> [BC-250]
+> uname -r               # note the version
+> dmesg | grep -i 88x2bu  # is the driver already loaded?
+> lsmod | grep 88x2bu     # same thing, more detail
+> ```
+>
+> If the driver is already loaded and `nmcli device wifi list` works, skip the entire manual build below. The RTL8852BU (`88x2bu`) is in the mainline kernel ≥6.17 — a newer Manjaro install may need no manual step at all.
+
+**If the adapter does not work automatically:**
 - Installs the USB WiFi adapter driver (see README.md for TP-Link options)
 - AI walks through `make`, `sudo make install`, `sudo modprobe 88x2bu`
 - AI tells the user to verify with `lsmod | grep 88x2bu` and paste the output
 
-**AI role:** Diagnose if the build fails (most common issue: kernel headers version mismatch).
+**AI role:** Diagnose if the build fails (most common issue: kernel headers version mismatch). If the kernel is 6.17+, tell the user to try a kernel update first (`sudo mhwd-kernel -i linux619` or similar) — the driver may ship natively in a newer kernel.
 
 ---
 
 ### Phase 6 — CU Unlock (BC-250)
 
 **Where:** The BC-250. This compiles and installs a patched kernel module.
+
+> **Kernel version check.** Before proceeding with the patch-and-compile cycle, verify the patch is actually needed:
+>
+> ```bash
+> [BC-250]
+> modinfo amdgpu | grep bc250   # is the parameter already there?
+> cat /sys/module/amdgpu/parameters/bc250_cc_write_mode  # does it exist?
+> dmesg | grep active_cu_number  # are all 40 CUs already active?
+> ```
+>
+> If `modinfo amdgpu` already shows the `bc250_cc_write_mode` parameter, the patch is already upstream or the BIOS enables all 40 CUs natively — the entire compile-and-install cycle is unnecessary. **Skip straight to Phase 7.**
 
 Full walkthrough: `docs/bc250-cu-unlock-on-arch.md`
 
@@ -261,6 +296,7 @@ Full walkthrough: `docs/bc250-cu-unlock-on-arch.md`
 
 **AI role:**
 - Read the full CU unlock doc from this repo
+- **First check whether the patch is still needed** (see kernel version check above)
 - Instruct the user step-by-step (or execute via [SSH] / [LOCAL] if Mode B or C)
 - Ask the user to paste output after each step
 - Verify `vermagic` matches `uname -r` before continuing
@@ -301,8 +337,8 @@ Full walkthrough: `docs/bc250-cu-unlock-on-arch.md`
 | BIOS config | Manual (user navigates) | UEFI menu, no terminal |
 | OS install | Manual (user clicks) | Interactive installer |
 | Initial setup commands | Manual or SSH | Simple, but SSH saves typing |
-| WiFi driver build | SSH preferred | Multi-step build, easy to typo |
-| CU unlock compile | SSH preferred | Many steps, each needs verification |
+| WiFi driver build | SSH preferred or skip | Multi-step build, easy to typo; on ≥6.17 may work out of the box |
+| CU unlock compile | SSH preferred or skip | Many steps, each needs verification; on newer kernels patch may be upstream |
 | CU module install | SSH preferred | Involves `sudo` and file paths |
 | Gaming / AI setup | Manual or SSH | Interactive (Steam) or scripted |
 
@@ -333,7 +369,7 @@ amd_bc-250_how-to/
 
 | Repo | Purpose |
 |---|---|
-| `csabakecskemeti/bc250-40cu-unlock` | CU-unlock patch + health test scripts |
+| `<your-org>/bc250-40cu-unlock` | CU-unlock patch + health test scripts |
 | `kenavru/BC-250` | EFI flasher tool |
 | `TuxThePenguin0/bc250-bios` | Custom BIOS for memory allocation |
 | `pnbarbeito/bc250-arch` | Oberon-governor install scripts |
